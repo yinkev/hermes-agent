@@ -640,16 +640,24 @@ def _execute_job_now(job: Dict[str, Any]) -> Dict[str, Any]:
         # also clears the fire claim) and returns True iff it processed the job.
         processed = run_one_job(job)
         refreshed = get_job(job_id)
-        # For finite one-shot jobs, mark_job_run removes the job from the
-        # store when completed >= times.  get_job returns None in that case,
-        # so we cannot read last_status — but processed=True means the job
-        # ran end-to-end successfully.  Treat removal as implicit success
-        # rather than reporting a false "failed" to the operator (#71760).
+        # Finite one-shots are removed after their terminal mark on BOTH
+        # success and failure, so deletion alone cannot prove the outcome.
+        # run_one_job writes an immutable execution-ledger result before it
+        # returns; use that result when the mutable job record is gone.
         if refreshed is None:
+            from cron.executions import latest_execution
+
+            execution = latest_execution(job_id) or {}
+            execution_ok = execution.get("status") == "completed"
             return {
                 "claimed": True,
-                "success": bool(processed),
-                "error": None,
+                "success": bool(processed and execution_ok),
+                "error": (
+                    None
+                    if processed and execution_ok
+                    else execution.get("error")
+                    or "Execution outcome unavailable after one-shot removal."
+                ),
             }
         ok = refreshed.get("last_status") == "ok"
         return {

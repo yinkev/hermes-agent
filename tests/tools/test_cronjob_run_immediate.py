@@ -118,13 +118,27 @@ class TestCronjobRunExecutesImmediately:
         that case, which previously caused execution_success=False even though
         the job ran to completion.
         """
+        execution = {"status": "completed", "error": None}
         with patch("tools.cronjob_tools.claim_job_for_fire", return_value=True), \
              patch("cron.scheduler.run_one_job", return_value=True), \
-             patch("tools.cronjob_tools.get_job", return_value=None):
+             patch("tools.cronjob_tools.get_job", return_value=None), \
+             patch("cron.executions.latest_execution", return_value=execution):
             res = _execute_job_now(dict(_JOB))
         assert res["claimed"] is True
         assert res["success"] is True
         assert res["error"] is None
+
+    def test_execute_job_now_preserves_removed_oneshot_failure(self):
+        """Deletion is terminal lifecycle, not evidence of success."""
+        execution = {"status": "failed", "error": "provider 500"}
+        with patch("tools.cronjob_tools.claim_job_for_fire", return_value=True), \
+             patch("cron.scheduler.run_one_job", return_value=True), \
+             patch("tools.cronjob_tools.get_job", return_value=None), \
+             patch("cron.executions.latest_execution", return_value=execution):
+            res = _execute_job_now(dict(_JOB))
+        assert res["claimed"] is True
+        assert res["success"] is False
+        assert res["error"] == "provider 500"
 
     def test_execute_job_now_marks_failure_on_exception(self):
         """An exception during fire is captured, marked failed, not propagated."""
