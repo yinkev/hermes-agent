@@ -1269,11 +1269,34 @@ def build_oauth_auth(
     )
     callback_handler = _make_callback_waiter(resolved_port)
 
-    return OAuthClientProvider(
+    provider_cls = OAuthClientProvider
+    provider_kwargs: dict[str, Any] = {}
+    from mcp.client.auth import OAuthClientProvider as _SDKOAuthClientProvider
+
+    if provider_cls is _SDKOAuthClientProvider:
+        # Keep this public compatibility factory uncached, but do not let it
+        # bypass Hermes' cross-process refresh serialization. A patched or
+        # custom provider class remains supported for existing callers/tests.
+        from tools.mcp_oauth_manager import _HERMES_PROVIDER_CLS
+
+        if _HERMES_PROVIDER_CLS is not None:
+            provider_cls = _HERMES_PROVIDER_CLS
+            provider_kwargs = {
+                "server_name": server_name,
+                "preregistered": bool(cfg.get("client_id")),
+            }
+
+    if provider_cls is None:  # guarded by the SDK availability check above
+        return None
+    provider = provider_cls(
         server_url=server_url,
         client_metadata=client_metadata,
         storage=storage,
         redirect_handler=redirect_handler,
         callback_handler=callback_handler,
         timeout=float(cfg.get("timeout", 300)),
+        **provider_kwargs,
     )
+    if provider_kwargs:
+        provider._hermes_home = str(_get_token_dir().parent)
+    return provider

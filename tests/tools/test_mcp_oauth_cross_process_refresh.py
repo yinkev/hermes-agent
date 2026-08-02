@@ -189,6 +189,23 @@ async def test_rotating_refresh_is_single_flight_across_provider_instances(
     assert stored.refresh_token == "new-refresh"
 
 
+def test_public_factory_uses_cross_process_safe_provider(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The preserved public factory must not bypass refresh serialization."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr("tools.mcp_oauth._is_interactive", lambda: True)
+
+    from tools.mcp_oauth import build_oauth_auth
+
+    provider = build_oauth_auth("factory-safe", "https://mcp.example/mcp")
+
+    assert _HERMES_PROVIDER_CLS is not None
+    assert provider is not None
+    assert isinstance(provider, _HERMES_PROVIDER_CLS)
+    assert provider._hermes_home == str(tmp_path)
+
+
 @pytest.mark.asyncio
 async def test_abandoned_refresh_releases_cross_process_lock(tmp_path, monkeypatch):
     """Disconnect/cancellation cannot strand the per-grant refresh lock."""
